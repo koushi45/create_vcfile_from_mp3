@@ -42,4 +42,8 @@ python app.py
 ```
 
 完成したアプリは
-`dist\AutoVoiceClipper\AutoVoiceClipper.exe` に出力されます。
+`release\AutoVoiceClipper\AutoVoiceClipper.exe` に出力されます。
+
+`release\AutoVoiceClipper` フォルダ全体が配布物です。exe単体を移動したり、
+`build` や `.pyinstaller-cache` 内のexeを起動したりしないでください。
+配布時は `release\AutoVoiceClipper-Windows.zip` を使用してください。

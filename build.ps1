@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$workerPath = Join-Path $PSScriptRoot "transcribe_worker.py"
+$appPath = Join-Path $PSScriptRoot "app.py"
 
 python -m pip install -r requirements-ui.txt
 python -m PyInstaller `
@@ -7,8 +9,17 @@ python -m PyInstaller `
     --windowed `
     --onedir `
     --name "AutoVoiceClipper" `
-    --add-data "transcribe_worker.py;." `
-    app.py
+    --distpath "release" `
+    --workpath ".pyinstaller-cache\work" `
+    --specpath ".pyinstaller-cache" `
+    --add-data "$workerPath;." `
+    $appPath
+
+Compress-Archive `
+    -Path "release\AutoVoiceClipper" `
+    -DestinationPath "release\AutoVoiceClipper-Windows.zip" `
+    -Force
 
 Write-Host ""
-Write-Host "Build complete: dist\AutoVoiceClipper\AutoVoiceClipper.exe"
+Write-Host "Build complete: release\AutoVoiceClipper\AutoVoiceClipper.exe"
+Write-Host "Distribution ZIP: release\AutoVoiceClipper-Windows.zip"
