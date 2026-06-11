@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 $workerPath = Join-Path $PSScriptRoot "transcribe_worker.py"
 $appPath = Join-Path $PSScriptRoot "app.py"
+$releaseName = "AutoVoiceClipper"
 
 python -m pip install -r requirements-ui.txt
 python -m PyInstaller `
@@ -8,18 +9,25 @@ python -m PyInstaller `
     --clean `
     --windowed `
     --onedir `
-    --name "AutoVoiceClipper" `
+    --name $releaseName `
     --distpath "release" `
     --workpath ".pyinstaller-cache\work" `
     --specpath ".pyinstaller-cache" `
-    --add-data "$workerPath;." `
     $appPath
 
+Copy-Item $workerPath "release\$releaseName\transcribe_worker.py" -Force
+Copy-Item "clip_export.py" "release\$releaseName\clip_export.py" -Force
+Copy-Item "requirements-kotoba.txt" "release\$releaseName\requirements-kotoba.txt" -Force
+Copy-Item "patch-diarizers.py" "release\$releaseName\patch-diarizers.py" -Force
+Copy-Item "setup-kotoba.cmd" "release\$releaseName\setup-kotoba.cmd" -Force
+Copy-Item "setup-huggingface-login.cmd" "release\$releaseName\setup-huggingface-login.cmd" -Force
+Copy-Item "setup-gpu.cmd" "release\$releaseName\setup-gpu.cmd" -Force
+
 Compress-Archive `
-    -Path "release\AutoVoiceClipper" `
-    -DestinationPath "release\AutoVoiceClipper-Windows.zip" `
+    -Path "release\$releaseName" `
+    -DestinationPath "release\$releaseName-Windows.zip" `
     -Force
 
 Write-Host ""
-Write-Host "Build complete: release\AutoVoiceClipper\AutoVoiceClipper.exe"
-Write-Host "Distribution ZIP: release\AutoVoiceClipper-Windows.zip"
+Write-Host "Build complete: release\$releaseName\$releaseName.exe"
+Write-Host "Distribution ZIP: release\$releaseName-Windows.zip"

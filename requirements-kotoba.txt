@@ -1,4 +1,10 @@
-torch>=2.4
-transformers>=4.44
+torch==2.4.1
+torchaudio==2.4.1
+numpy==1.26.4
+transformers==4.57.6
 accelerate>=0.34
 soundfile>=0.12
+punctuators==0.0.5
+pyannote.audio==3.1.1
+speechbrain==0.5.16
+imageio-ffmpeg>=0.5

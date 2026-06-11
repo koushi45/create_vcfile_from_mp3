@@ -7,54 +7,13 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from clip_export import extract_segments, format_transcript
 
 MODEL_ID = "kotoba-tech/kotoba-whisper-v2.2"
 
 
-def extract_segments(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return timestamped segments from regular or speaker-separated output."""
-    chunks: list[dict[str, Any]] = []
-    raw_chunks = result.get("chunks")
-    if isinstance(raw_chunks, list):
-        chunks.extend(raw_chunks)
-
-    for key, value in result.items():
-        if key.startswith("chunks/") and isinstance(value, list):
-            chunks.extend(value)
-
-    normalized = []
-    for chunk in chunks:
-        timestamp = chunk.get("timestamp") or chunk.get("timestamps")
-        if not isinstance(timestamp, (list, tuple)) or len(timestamp) < 2:
-            continue
-        start, end = timestamp[0], timestamp[1]
-        if start is None or end is None:
-            continue
-        text = str(chunk.get("text", "")).strip()
-        if text:
-            normalized.append(
-                {"start": float(start), "end": float(end), "text": text}
-            )
-
-    normalized.sort(key=lambda item: (item["start"], item["end"]))
-    return normalized
-
-
-def format_transcript(result: dict[str, Any], gap_seconds: float) -> str:
-    segments = extract_segments(result)
-    if not segments:
-        return str(result.get("text", "")).strip()
-
-    parts = [segments[0]["text"]]
-    for previous, current in zip(segments, segments[1:]):
-        if current["start"] - previous["end"] >= gap_seconds:
-            parts.append("/")
-        parts.append(current["text"])
-    return "".join(parts)
-
-
 def worker_path() -> Path:
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
     return base / "transcribe_worker.py"
 
 
@@ -64,7 +23,11 @@ def run_transcription(
     model: str,
     gap_seconds: float,
     on_status: Callable[[str], None] | None = None,
-) -> str:
+    on_log: Callable[[str], None] | None = None,
+    on_process: Callable[[subprocess.Popen[str]], None] | None = None,
+    device: str = "cpu",
+    output_root: str | None = None,
+) -> dict[str, Any]:
     command = [
         python_executable,
         str(worker_path()),
@@ -72,37 +35,69 @@ def run_transcription(
         audio_path,
         "--model",
         model,
+        "--device",
+        device,
+        "--gap",
+        str(gap_seconds),
+        "--output-root",
+        output_root or str(worker_path().parent / "output"),
     ]
     env = os.environ.copy()
-    env["HF_HUB_OFFLINE"] = "1"
+    env.pop("HF_HUB_OFFLINE", None)
+    env.pop("TRANSFORMERS_OFFLINE", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONWARNINGS"] = "ignore"
+    env["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         encoding="utf-8",
         errors="replace",
         env=env,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    if on_process:
+        on_process(process)
 
     result: dict[str, Any] | None = None
+    worker_error = ""
     assert process.stdout is not None
     for line in process.stdout:
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
+            if on_log and line.strip():
+                on_log(line.rstrip())
+            lowered = line.lower()
+            if on_status and (
+                "gatedrepoerror" in lowered
+                or "401" in lowered
+                or "403" in lowered
+                or "huggingface.co/pyannote" in lowered
+            ):
+                on_status("Hugging Face認証とPyAnnoteモデルの利用規約を確認してください")
             continue
         if message.get("type") == "status" and on_status:
             on_status(str(message.get("message", "")))
         elif message.get("type") == "result":
             result = message["data"]
+        elif message.get("type") == "error":
+            worker_error = str(message.get("message", ""))
+        elif message.get("type") == "log" and on_log:
+            on_log(str(message.get("message", "")))
 
-    stderr = process.stderr.read() if process.stderr else ""
     return_code = process.wait()
     if return_code != 0:
-        detail = stderr.strip().splitlines()[-1] if stderr.strip() else "不明なエラー"
-        raise RuntimeError(detail)
+        if worker_error:
+            raise RuntimeError(worker_error)
+        raise RuntimeError("文字起こし処理が異常終了しました。実行ログを確認してください。")
     if result is None:
         raise RuntimeError("文字起こし結果を取得できませんでした。")
-    return format_transcript(result, gap_seconds)
+    return {
+        "text": format_transcript(result["transcription"], gap_seconds),
+        "output_dir": str(result["output_dir"]),
+        "files": list(result["files"]),
+    }
